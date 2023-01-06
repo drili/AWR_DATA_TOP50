@@ -13,7 +13,10 @@
 
         // --- Array lists to run
         $array_projects = array(
-            array("www.fji.dk", "fji.dk/")
+            array("byravn.dk", "byravn.dk"),
+            array("byravn.se", "byravn.se"),
+            array("byravn.no", "byravn.no/"),
+            array("vestermarkribe.dk", "vestermarkribe.dk/")
         );
         $token = "1e4a1d8dc5cf80f19b468f28f640e841";
 
@@ -21,41 +24,38 @@
         array_map( 'unlink', array_filter((array) glob("extracted_jsons/*") ) );
 
         foreach ($array_projects as $key) {
+            echo "key: " . $key[0];
             // - Variables
             $project_name = $key[0];
             $project_name_sanitized = preg_replace("/[\W_]+/u", '', $project_name);
             $project_website = $key[1];
             
             // - Check if database table already exists
-            function databaseTableHandler($project_name_sanitized, $con) {
-                $table_suffix = $project_name_sanitized;
+            $table_suffix = $project_name_sanitized;
 
-                if (mysqli_query($con, "DESCRIBE `awr_data_top50_".$table_suffix."`")) {
-                    // - Table exists, empty table
-                    mysqli_query($con, "TRUNCATE TABLE `awr_data_top50_".$table_suffix."`");
-                    echo "<script>console.log('SQL table already exists (awr_data_top50_".$table_suffix."). - table emptied')</script>";
-                    return;
+            if (mysqli_query($con, "DESCRIBE `awr_data_top50_".$table_suffix."`")) {
+                // - Table exists, empty table
+                mysqli_query($con, "TRUNCATE TABLE `awr_data_top50_".$table_suffix."`");
+                echo "<script>console.log('SQL table already exists (awr_data_top50_".$table_suffix."). - table emptied')</script>";
+            } else {
+                // - Table does not exists, create it
+                $sql_create_table = "CREATE TABLE `awr_data_top50_".$table_suffix."` (
+                    unique_id INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    keyword VARCHAR(255) NOT NULL,
+                    url VARCHAR(255) NOT NULL,
+                    position INT(11) NOT NULL,
+                    typedescription VARCHAR(255) NOT NULL,
+                    page INT(11) NOT NULL,
+                    domain VARCHAR(255) NOT NULL,
+                    project_client VARCHAR(255) NOT NULL
+                )";
+
+                if ($con->query($sql_create_table) === TRUE) {
+                    echo "<script>console.log('SQL table created successfully (awr_data_top50_".$table_suffix.").')</script>";
                 } else {
-                    // - Table does not exists, create it
-                    $sql_create_table = "CREATE TABLE `awr_data_top50_".$table_suffix."` (
-                        unique_id INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                        keyword VARCHAR(255) NOT NULL,
-                        url VARCHAR(255) NOT NULL,
-                        position INT(11) NOT NULL,
-                        typedescription VARCHAR(255) NOT NULL,
-                        page INT(11) NOT NULL,
-                        domain VARCHAR(255) NOT NULL,
-                        project_client VARCHAR(255) NOT NULL
-                    )";
-
-                    if ($con->query($sql_create_table) === TRUE) {
-                        echo "<script>console.log('SQL table created successfully (awr_data_top50_".$table_suffix.").')</script>";
-                    } else {
-                        echo "ErrorResponse: Error creating table: " . $con->error;
-                    }
+                    echo "ErrorResponse: Error creating table: " . $con->error;
                 }
             }
-            databaseTableHandler($project_name_sanitized, $con);
 
             // - Get dates
             $url_get_dates = "https://api.awrcloud.com/v2/get.php?action=get_dates&project=".$project_name."&token=".$token."";
@@ -84,6 +84,7 @@
 
             $table = "awr_data_top50_".$project_name_sanitized;
 
+            $loop_iterator = 0;
             for ($i = 0; $i < $dateFilesCount; $i++) {
                 $urlRequest = $responseRows[2 + $i];
                 $urlHandle = fopen($urlRequest, 'r');
@@ -123,7 +124,7 @@
 
                     // the json file contains nested json objects, make sure you use associative arrays
                     $rankings = json_decode(file_get_contents($pathToExtractedJson . $entry), true); 
-
+                    
                     // echo "";
                     // echo "Search Engine: " . $rankings["searchengine"];
                     // echo "Search Depth: " . $rankings["depth"];
@@ -131,25 +132,36 @@
                     // echo "Keyword: " . $rankings["keyword"];
 
                     $rank_data_array = $rankings["rankdata"];
+
                     foreach ($rank_data_array as $rank_data) {
                         // echo "<br/>" . $rank_data["position"] . ". " . $rank_data["url"] . " " . $rank_data["typedescription"] . " result on page " . $rank_data["page"];
-                        if (!empty($rank_data)) {
+                        if (!empty($rank_data) && $loop_iterator < 10000) {
                             $rank_data_domain = parse_url($rank_data["url"]);
-                            $rank_data_domain_host = $rank_data_domain["host"];
-                            $sql_insert = "INSERT INTO ".$table." (keyword, url, position, typedescription, page, domain, project_client)
-                            VALUES ('".$con->real_escape_string($rankings["keyword"])."', '".$con->real_escape_string($rank_data["url"])."', '".$con->real_escape_string($rank_data["position"])."', '".$con->real_escape_string($rank_data["typedescription"])."', '".$con->real_escape_string($rank_data["page"])."', '".$con->real_escape_string($rank_data_domain_host)."', '".$con->real_escape_string($project_name)."')";
+                            $rank_data_domain_host = empty($rank_data_domain["host"]) ? "null" : $rank_data_domain["host"];
 
-                            if ($con->query($sql_insert) === TRUE) {
-                                            
-                            } else {
-                                echo "Error: " . $sql_insert . "<br>" . $con->error;
+                            // * Check if keyword exists in "awr_data_default_{{x}}"
+                            $keyword_escaped = $con->real_escape_string($rankings["keyword"]);
+                            $sql_check_keyword = "SELECT keyword FROM awr_data_default_".$project_name_sanitized." WHERE keyword='".$keyword_escaped."' LIMIT 1";
+                            $sql_check_keyword_res = $con->query($sql_check_keyword);
+
+                            if ($sql_check_keyword_res->num_rows > 0) {
+                                $sql_insert = "INSERT INTO ".$table." (keyword, url, position, typedescription, page, domain, project_client)
+                                VALUES ('".$con->real_escape_string($rankings["keyword"])."', '".$con->real_escape_string($rank_data["url"])."', '".$con->real_escape_string($rank_data["position"])."', '".$con->real_escape_string($rank_data["typedescription"])."', '".$con->real_escape_string($rank_data["page"])."', '".$con->real_escape_string($rank_data_domain_host)."', '".$con->real_escape_string($project_name_sanitized)."')";
+
+                                if ($con->query($sql_insert) === TRUE) {
+                                                
+                                } else {
+                                    // echo "Error: " . $sql_insert . "<br>" . $con->error;
+                                }
                             }
                         }
+
+                        $loop_iterator++;
                     }
                 }
             }
 
-            
+            sleep(3);
         }
     ?>
 </body>
