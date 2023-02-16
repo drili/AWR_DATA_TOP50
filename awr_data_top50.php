@@ -17,7 +17,8 @@
             // array("byravn.se", "byravn.se"),
             // array("byravn.no", "byravn.no/"),
             // array("vestermarkribe.dk", "vestermarkribe.dk/")
-            array("eurodan-huse.dk", "eurodan-huse.dk")
+            // array("eurodan-huse.dk", "eurodan-huse.dk")
+            array("www.northernhunting.com", "www.northernhunting.com/")
         );
         $token = "1e4a1d8dc5cf80f19b468f28f640e841";
 
